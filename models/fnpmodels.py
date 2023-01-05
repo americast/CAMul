@@ -13,7 +13,7 @@ from models.utils import (
     one_hot,
 )
 from torch.distributions import Categorical
-
+import pudb
 
 class TransformerAttn(nn.Module):
     """
@@ -125,6 +125,7 @@ class LatentAtten(nn.Module):
 
 
 class EmbedAttenSeq(nn.Module):
+    # Executed here 1
     """
     Module to embed a sequence. Adds Attention module to
     """
@@ -182,6 +183,7 @@ class EmbedAttenSeq(nn.Module):
 
     def forward(self, seqs, metadata):
         # Take last output from GRU
+        # pu.db
         latent_seqs = self.rnn(seqs)[0]
         latent_seqs = self.attn_layer(latent_seqs).sum(0)
         out = self.out_layer(torch.cat([latent_seqs, metadata], dim=1))

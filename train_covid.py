@@ -8,10 +8,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from optparse import OptionParser
 from sklearn.preprocessing import StandardScaler
-
+import pudb
+from torch.utils.tensorboard import SummaryWriter
 np.random.seed(10)
 
-regions = ["X", "CA", "FL", "MA", "NY"]
+regions = ["CA", "FL", "MA", "NY"]
 city_idx = {r: i for i, r in enumerate(regions)}
 
 features = [
@@ -60,7 +61,13 @@ parser.add_option("-w", "--week", dest="week_ahead", type="int", default=2)
 parser.add_option("-a", "--atten", dest="atten", type="string", default="trans")
 parser.add_option("-n", "--num", dest="num", type="string")
 parser.add_option("-e", "--epoch", dest="epochs", type="int", default="1500")
+parser.add_option("-b", "--break", dest="break_ref_set", type="int", default=4)
+
 (options, args) = parser.parse_args()
+
+BREAK_REF_SET = options.break_ref_set
+print("Break ref sets into "+str(BREAK_REF_SET)+" part(s).")
+writer = SummaryWriter("runs/covid_"+str(options.week_ahead)+"_break_"+str(BREAK_REF_SET))
 
 # train_seasons = list(range(2003, 2019))
 # test_seasons = [2019]
@@ -92,9 +99,9 @@ def save_data(obj, filepath):
 
 full_x_all = np.array(full_seqs_norm)
 
-
 full_meta_all = np.array([one_hot(city_idx[r]) for r in regions])
 full_y_all = full_x_all[:, :, features.index(label)].argmax(-1)
+# pu.db
 #full_test_x = full_x[:, -8:, :]
 #full_test_meta = full_meta
 #full_test_y = full_y
@@ -141,7 +148,6 @@ for w in range(4,5):
     train_meta, train_x, train_y, test_meta, test_x, test_y = create_dataset2(
         full_meta_all, full_x_all, last=week_ahead
     )
-
 
     def create_tensors(metas, seqs, ys):
         metas = float_tensor(metas)
@@ -236,9 +242,16 @@ for w in range(4,5):
         full_x_chunks[i * 4 + 2, -40:] = s[:40]
         full_x_chunks[i * 4 + 3, :] = s
         full_meta_chunks[i * 4 : i * 4 + 4] = full_meta[i]
-    ilk = full_x.shape[1]//4
-    full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:]])
-    full_meta = np.concatenate([full_meta for _ in range(4)])
+    # BREAK_REF_SET = 5
+    ilk = full_x.shape[1]//BREAK_REF_SET
+    # pu.db
+    to_concat = []
+    for bn in range(BREAK_REF_SET):
+        to_concat.append(full_x[:,bn*ilk:(bn+1)*ilk,:])
+    full_x = np.concatenate(to_concat)
+    full_meta = np.concatenate([full_meta for _ in range(BREAK_REF_SET)])
+    # full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:]])
+    # full_meta = np.concatenate([full_meta for _ in range(4)])
 
     full_x = float_tensor(full_x)
     full_meta = float_tensor(full_meta)
@@ -332,6 +345,7 @@ for w in range(4,5):
         fnp_model.train()
         print(f"Epoch: {ep+1}")
         optimizer.zero_grad()
+        # pu.db
         x_embeds = emb_model.forward_mask(train_x.transpose(1, 0), train_meta, train_mask)
         full_embeds = emb_model_full(full_x.transpose(1, 0), full_meta)
         loss, yp, _ = fnp_model.forward(full_embeds, full_y, x_embeds, train_y)
@@ -355,6 +369,8 @@ for w in range(4,5):
         idxs = np.random.randint(yp.shape[0], size=10)
         print("Loss:", loss.detach().cpu().numpy())
         print(f"Val RMSE: {e}, Train RMSE: {train_errors[-1]}")
+        writer.add_scalar('Train/RMSE', train_errors[-1], ep)
+        writer.add_scalar('Val/RMSE', e, ep)
         # print(f"MSE: {e}")
 
         if ep > 300 and min(errors[-100:]) > error + 0.02:
