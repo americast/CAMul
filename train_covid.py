@@ -245,13 +245,24 @@ for w in range(4,5):
     # BREAK_REF_SET = 5
     ilk = full_x.shape[1]//BREAK_REF_SET
     # pu.db
-    to_concat = []
-    for bn in range(BREAK_REF_SET):
-        to_concat.append(full_x[:,bn*ilk:(bn+1)*ilk,:])
-    full_x = np.concatenate(to_concat)
-    full_meta = np.concatenate([full_meta for _ in range(BREAK_REF_SET)])
-    # full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:]])
-    # full_meta = np.concatenate([full_meta for _ in range(4)])
+    if BREAK_REF_SET != 4:
+        to_concat = []
+        for bn in range(BREAK_REF_SET):
+            to_concat.append(full_x[:,bn*ilk:(bn+1)*ilk,:])
+        full_x = np.concatenate(to_concat)
+        full_meta = np.concatenate([full_meta for _ in range(BREAK_REF_SET)])
+    elif BREAK_REF_SET == 5:
+        full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:], full_x[:,4*ilk:5*ilk,:]])
+        full_meta = np.concatenate([full_meta for _ in range(5)])
+    elif BREAK_REF_SET == 3:
+        full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:]])
+        full_meta = np.concatenate([full_meta for _ in range(3)])
+    elif BREAK_REF_SET == 4:
+        full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:]])
+        full_meta = np.concatenate([full_meta for _ in range(4)])
+    elif BREAK_REF_SET == 6:
+        full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:], full_x[:,4*ilk:5*ilk,:], full_x[:,5*ilk:6*ilk,:]])
+        full_meta = np.concatenate([full_meta for _ in range(6)])
 
     full_x = float_tensor(full_x)
     full_meta = float_tensor(full_meta)
