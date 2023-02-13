@@ -10,8 +10,8 @@ from optparse import OptionParser
 from sklearn.preprocessing import StandardScaler
 import pudb
 from torch.utils.tensorboard import SummaryWriter
-torch.manual_seed(0)
 np.random.seed(10)
+torch.manual_seed(0)
 import random
 random.seed(0)
 import time
@@ -74,7 +74,7 @@ parser.add_option("-c", "--check-time", action="store_true", dest="check_time", 
 BREAK_REF_SET = options.break_ref_set
 print("Break ref sets into "+str(BREAK_REF_SET)+" part(s).")
 if not options.no_tb:
-    writer = SummaryWriter("runs/covid/covid_"+str(options.week_ahead)+"_break_"+str(BREAK_REF_SET))
+    writer = SummaryWriter("runs/covid_pcc/covid_"+str(options.week_ahead)+"_break_"+str(BREAK_REF_SET))
 
 # train_seasons = list(range(2003, 2019))
 # test_seasons = [2019]
@@ -225,6 +225,7 @@ for w in range(4,5):
         use_ref_labels=False,
         use_DAG=False,
         add_atten=False,
+        pcc=True,
     ).cuda()
     optimizer = optim.Adam(
         list(emb_model.parameters())
@@ -358,7 +359,6 @@ for w in range(4,5):
     variances = []
     best_ep = 0
     tic = time.perf_counter()
-
     for ep in range(EPOCHS):
         emb_model.train()
         emb_model_full.train()
@@ -380,7 +380,6 @@ for w in range(4,5):
             .cpu()
             .numpy()
         )
-
         e, yp, yt, _, _, _, _ = evaluate(False)
         e = np.mean([evaluate(True, dtype="val")[0] for _ in range(40)])
         vars = np.mean([evaluate(True, dtype="val")[3] for _ in range(40)])
@@ -404,27 +403,27 @@ for w in range(4,5):
             save_model(f"model_chkp/model{model_num}")
             error = e
             best_ep = ep + 1
+
     toc = time.perf_counter()
     if options.check_time:
         print(f"Time needed {toc - tic:0.4f} seconds")
         sys.exit(0)
-
     print(f"Val MSE error: {error}")
     plt.figure(1)
     plt.plot(losses)
-    plt.savefig(f"plots_covid/losses{model_num}.png")
+    plt.savefig(f"plots_covid_pcc/losses{model_num}.png")
     plt.figure(2)
     plt.plot(np.log(errors))
     plt.plot(np.log(train_errors))
-    plt.savefig(f"plots_covid/errors{model_num}.png")
+    plt.savefig(f"plots_covid_pcc/errors{model_num}.png")
     plt.figure(3)
     plt.plot(variances)
-    plt.savefig(f"plots_covid/vars{model_num}.png")
+    plt.savefig(f"plots_covid_pcc/vars{model_num}.png")
 
     # load_model(f"model_chkp/model{model_num}")
 
     e, yp, yt, vars, fem, tem, A = evaluate(True)
-    # pu.db
+    pu.db
     yt *= full_seqs_norm[features.index(label)]
     yp = (
         np.array([evaluate(True)[1] for _ in range(1000)])
@@ -439,7 +438,7 @@ for w in range(4,5):
     plt.plot(yt, label="True Value", color="green")
     plt.legend()
     plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Test{model_num}.png")
+    plt.savefig(f"plots_covid_pcc/Test{model_num}.png")
     dt = {
         "rmse": e,
         "target": yt,
@@ -448,7 +447,7 @@ for w in range(4,5):
         "fem": fem,
         "tem": tem,
     }
-    save_data(dt, f"./saves_covid/{model_num}_test.pkl")
+    save_data(dt, f"./saves_covid_pcc/{model_num}_test.pkl")
 
     e, yp, yt, vars, _, _ = evaluate(True, dtype="val")
     yt *= full_seqs_norm[features.index(label)]
@@ -465,7 +464,7 @@ for w in range(4,5):
     plt.plot(yt, label="True Value", color="green")
     plt.legend()
     plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Val{model_num}.pdf")
+    plt.savefig(f"plots_covid_pcc/Val{model_num}.pdf")
 
     e, yp, yt, vars, fem, tem = evaluate(True, dtype="all")
     yt *= full_seqs_norm[features.index(label)]
@@ -482,7 +481,7 @@ for w in range(4,5):
     plt.plot(yt, label="True Value", color="green")
     plt.legend()
     plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Train{model_num}.pdf")
+    plt.savefig(f"plots_covid_pcc/Train{model_num}.pdf")
     dt = {
         "rmse": e,
         "target": yt,
@@ -491,7 +490,7 @@ for w in range(4,5):
         "fem": fem,
         "tem": tem,
     }
-    save_data(dt, f"./saves_covid/{model_num}_train.pkl")
+    save_data(dt, f"./saves_covid_pcc/{model_num}_train.pkl")
 
 
 
@@ -514,7 +513,7 @@ for w in range(4,5):
         plt.plot(yt[i*len_yp: (i+1)*len_yp], label="True Value", color="green")
         plt.legend()
         plt.title(f"RMSE: {np.mean((yp[i*len_yp: (i+1)*len_yp] - yt[i*len_yp: (i+1)*len_yp]) ** 2)}")
-        plt.savefig(f"plots_covid/Test{model_num}_{r}_{w}.png")
+        plt.savefig(f"plots_covid_pcc/Test{model_num}_{r}_{w}.png")
     dt = {
         "rmse": e,
         "target": yt,

@@ -65,16 +65,21 @@ parser.add_option("-w", "--week", dest="week_ahead", type="int", default=2)
 parser.add_option("-a", "--atten", dest="atten", type="string", default="trans")
 parser.add_option("-n", "--num", dest="num", type="string")
 parser.add_option("-e", "--epoch", dest="epochs", type="int", default="1500")
-parser.add_option("-b", "--break", dest="break_ref_set", type="int", default=4)
+parser.add_option("-s", "--sliding-window-size", dest="window_size", type="int", default=17)
+parser.add_option("-r", "--sliding-window-stride", dest="window_stride", type="int", default=17)
 parser.add_option("-t", "--no-tb", action="store_true", dest="no_tb", default=False,)
 parser.add_option("-c", "--check-time", action="store_true", dest="check_time", default=False,)
+parser.add_option("-d", "--no-dag", action="store_true", dest="no_dag", default=False,)
 
 (options, args) = parser.parse_args()
 
-BREAK_REF_SET = options.break_ref_set
-print("Break ref sets into "+str(BREAK_REF_SET)+" part(s).")
+# BREAK_REF_SET = options.break_ref_set
+# print("Break ref sets into "+str(BREAK_REF_SET)+" part(s).")
 if not options.no_tb:
-    writer = SummaryWriter("runs/covid/covid_"+str(options.week_ahead)+"_break_"+str(BREAK_REF_SET))
+    if options.no_dag:
+        writer = SummaryWriter("runs/covid_slidingwindow_nodag/covid_"+str(options.week_ahead)+"_windowsize_"+str(options.window_size)+"_stride_"+str(options.window_stride))
+    else:
+        writer = SummaryWriter("runs/covid_slidingwindow/covid_"+str(options.week_ahead)+"_windowsize_"+str(options.window_size)+"_stride_"+str(options.window_stride))
 
 # train_seasons = list(range(2003, 2019))
 # test_seasons = [2019]
@@ -105,7 +110,6 @@ def save_data(obj, filepath):
 
 
 full_x_all = np.array(full_seqs_norm)
-
 full_meta_all = np.array([one_hot(city_idx[r]) for r in regions])
 full_y_all = full_x_all[:, :, features.index(label)].argmax(-1)
 # pu.db
@@ -137,6 +141,7 @@ def create_dataset2(full_meta, full_x, week_ahead=week_ahead, last=5):
             metas_t.append(meta)
             seqs_t.append(seq[: i - week_ahead + 1])
             y_t.append(seq[i, features.index(label), None])
+    # pu.db
     return (
         np.array(metas, dtype="float32"),
         seqs,
@@ -148,6 +153,7 @@ def create_dataset2(full_meta, full_x, week_ahead=week_ahead, last=5):
 
 for w in range(4,5):
 
+    # pu.db
     full_x, full_meta = full_x_all[:,:-w,:], full_meta_all
     full_y = full_x[:, :, features.index(label)].argmax(-1)
     # train_meta, train_x, train_y = create_dataset(full_meta, full_x)
@@ -225,6 +231,7 @@ for w in range(4,5):
         use_ref_labels=False,
         use_DAG=False,
         add_atten=False,
+        no_dag=True
     ).cuda()
     optimizer = optim.Adam(
         list(emb_model.parameters())
@@ -249,27 +256,46 @@ for w in range(4,5):
         full_x_chunks[i * 4 + 2, -40:] = s[:40]
         full_x_chunks[i * 4 + 3, :] = s
         full_meta_chunks[i * 4 : i * 4 + 4] = full_meta[i]
-    # BREAK_REF_SET = 5
-    ilk = full_x.shape[1]//BREAK_REF_SET
     # pu.db
-    if BREAK_REF_SET != 4:
-        to_concat = []
-        for bn in range(BREAK_REF_SET):
-            to_concat.append(full_x[:,bn*ilk:(bn+1)*ilk,:])
-        full_x = np.concatenate(to_concat)
-        full_meta = np.concatenate([full_meta for _ in range(BREAK_REF_SET)])
-    elif BREAK_REF_SET == 5:
-        full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:], full_x[:,4*ilk:5*ilk,:]])
-        full_meta = np.concatenate([full_meta for _ in range(5)])
-    elif BREAK_REF_SET == 3:
-        full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:]])
-        full_meta = np.concatenate([full_meta for _ in range(3)])
-    elif BREAK_REF_SET == 4:
-        full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:]])
-        full_meta = np.concatenate([full_meta for _ in range(4)])
-    elif BREAK_REF_SET == 6:
-        full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:], full_x[:,4*ilk:5*ilk,:], full_x[:,5*ilk:6*ilk,:]])
-        full_meta = np.concatenate([full_meta for _ in range(6)])
+    # ilk = full_x.shape[1]//4
+    ilk = options.window_size
+    # """
+    to_concat = []
+    for w in range(0, full_x.shape[1] - ilk + 1, options.window_stride):
+        to_concat.append(full_x[:,w:w + ilk,:])
+    full_x = np.concatenate(to_concat)
+    full_meta = np.concatenate([full_meta for _ in range(len(full_x)//4)])
+    # """
+    # pu.db
+    # full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:]])
+    # full_meta = np.concatenate([full_meta for _ in range(4)])
+    
+    
+    
+    
+    # pu.db
+    # BREAK_REF_SET = 5
+    # pu.db
+    # ilk = full_x.shape[1]//BREAK_REF_SET
+    # # pu.db
+    # if BREAK_REF_SET != 4:
+    #     to_concat = []
+    #     for bn in range(BREAK_REF_SET):
+    #         to_concat.append(full_x[:,bn*ilk:(bn+1)*ilk,:])
+    #     full_x = np.concatenate(to_concat)
+    #     full_meta = np.concatenate([full_meta for _ in range(BREAK_REF_SET)])
+    # elif BREAK_REF_SET == 5:
+    #     full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:], full_x[:,4*ilk:5*ilk,:]])
+    #     full_meta = np.concatenate([full_meta for _ in range(5)])
+    # elif BREAK_REF_SET == 3:
+    #     full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:]])
+    #     full_meta = np.concatenate([full_meta for _ in range(3)])
+    # elif BREAK_REF_SET == 4:
+    #     full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:]])
+    #     full_meta = np.concatenate([full_meta for _ in range(4)])
+    # elif BREAK_REF_SET == 6:
+    #     full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:], full_x[:,4*ilk:5*ilk,:], full_x[:,5*ilk:6*ilk,:]])
+    #     full_meta = np.concatenate([full_meta for _ in range(6)])
 
     full_x = float_tensor(full_x)
     full_meta = float_tensor(full_meta)
@@ -365,7 +391,6 @@ for w in range(4,5):
         fnp_model.train()
         print(f"Epoch: {ep+1}")
         optimizer.zero_grad()
-        # pu.db
         x_embeds = emb_model.forward_mask(train_x.transpose(1, 0), train_meta, train_mask)
         full_embeds = emb_model_full(full_x.transpose(1, 0), full_meta)
         loss, yp, _ = fnp_model.forward(full_embeds, full_y, x_embeds, train_y)
@@ -412,19 +437,18 @@ for w in range(4,5):
     print(f"Val MSE error: {error}")
     plt.figure(1)
     plt.plot(losses)
-    plt.savefig(f"plots_covid/losses{model_num}.png")
+    plt.savefig(f"plots_covid_slidingwindow/losses{model_num}.png")
     plt.figure(2)
     plt.plot(np.log(errors))
     plt.plot(np.log(train_errors))
-    plt.savefig(f"plots_covid/errors{model_num}.png")
+    plt.savefig(f"plots_covid_slidingwindow/errors{model_num}.png")
     plt.figure(3)
     plt.plot(variances)
-    plt.savefig(f"plots_covid/vars{model_num}.png")
+    plt.savefig(f"plots_covid_slidingwindow/vars{model_num}.png")
 
     # load_model(f"model_chkp/model{model_num}")
 
     e, yp, yt, vars, fem, tem, A = evaluate(True)
-    # pu.db
     yt *= full_seqs_norm[features.index(label)]
     yp = (
         np.array([evaluate(True)[1] for _ in range(1000)])
@@ -439,7 +463,7 @@ for w in range(4,5):
     plt.plot(yt, label="True Value", color="green")
     plt.legend()
     plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Test{model_num}.png")
+    plt.savefig(f"plots_covid_slidingwindow/Test{model_num}.png")
     dt = {
         "rmse": e,
         "target": yt,
@@ -465,7 +489,7 @@ for w in range(4,5):
     plt.plot(yt, label="True Value", color="green")
     plt.legend()
     plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Val{model_num}.pdf")
+    plt.savefig(f"plots_covid_slidingwindow/Val{model_num}.pdf")
 
     e, yp, yt, vars, fem, tem = evaluate(True, dtype="all")
     yt *= full_seqs_norm[features.index(label)]
@@ -482,7 +506,7 @@ for w in range(4,5):
     plt.plot(yt, label="True Value", color="green")
     plt.legend()
     plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Train{model_num}.pdf")
+    plt.savefig(f"plots_covid_slidingwindow/Train{model_num}.pdf")
     dt = {
         "rmse": e,
         "target": yt,
@@ -514,7 +538,7 @@ for w in range(4,5):
         plt.plot(yt[i*len_yp: (i+1)*len_yp], label="True Value", color="green")
         plt.legend()
         plt.title(f"RMSE: {np.mean((yp[i*len_yp: (i+1)*len_yp] - yt[i*len_yp: (i+1)*len_yp]) ** 2)}")
-        plt.savefig(f"plots_covid/Test{model_num}_{r}_{w}.png")
+        plt.savefig(f"plots_covid_slidingwindow/Test{model_num}_{r}_{w}.png")
     dt = {
         "rmse": e,
         "target": yt,

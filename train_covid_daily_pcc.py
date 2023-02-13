@@ -10,44 +10,61 @@ from optparse import OptionParser
 from sklearn.preprocessing import StandardScaler
 import pudb
 from torch.utils.tensorboard import SummaryWriter
-torch.manual_seed(0)
 np.random.seed(10)
-import random
-random.seed(0)
-import time
-import sys
-regions = ["CA", "FL", "MA", "NY"]
+
+# regions = ["CA", "FL", "MA", "NY"]
+regions = ["NY"]
 city_idx = {r: i for i, r in enumerate(regions)}
 
+# features = [
+#     "retail_and_recreation_percent_change_from_baseline",
+#     "grocery_and_pharmacy_percent_change_from_baseline",
+#     "parks_percent_change_from_baseline",
+#     "transit_stations_percent_change_from_baseline",
+#     "workplaces_percent_change_from_baseline",
+#     "residential_percent_change_from_baseline",
+#     "covidnet",
+#     "positiveIncrease",
+#     "negativeIncrease",
+#     "totalTestResultsIncrease",
+#     "onVentilatorCurrently",
+#     "inIcuCurrently",
+#     "recovered",
+#     "hospitalizedIncrease",
+#     "death_jhu_incidence",
+#     "dex_a",
+#     "apple_mobility",
+#     "Number of Facilities Reporting",
+#     "CLI Percent of Total Visits",
+# ]
+
 features = [
-    "retail_and_recreation_percent_change_from_baseline",
-    "grocery_and_pharmacy_percent_change_from_baseline",
-    "parks_percent_change_from_baseline",
-    "transit_stations_percent_change_from_baseline",
-    "workplaces_percent_change_from_baseline",
-    "residential_percent_change_from_baseline",
-    "covidnet",
-    "positiveIncrease",
-    "negativeIncrease",
-    "totalTestResultsIncrease",
-    "onVentilatorCurrently",
-    "inIcuCurrently",
-    "recovered",
-    "hospitalizedIncrease",
-    "death_jhu_incidence",
-    "dex_a",
-    "apple_mobility",
-    "Number of Facilities Reporting",
-    "CLI Percent of Total Visits",
-]
+       'retail_and_recreation_percent_change_from_baseline',
+       'grocery_and_pharmacy_percent_change_from_baseline',
+       'parks_percent_change_from_baseline',
+       'transit_stations_percent_change_from_baseline',
+       'workplaces_percent_change_from_baseline',
+       'residential_percent_change_from_baseline',
+       'Stage_One_Doses', 'Stage_Two_Doses', 'covidnet',
+       'Observed Number', 'Excess Estimate', 'death_jhu_cumulative',
+       'death_jhu_incidence', 'positiveIncr_cumulative', 'positiveIncr',
+       'cdc_negativeIncr', 'cdc_positiveIncr', 'cdc_total_resultsIncr',
+       'symptom:Fever', 'symptom:Low-grade fever', 'symptom:Cough',
+       'symptom:Sore throat', 'symptom:Headache', 'symptom:Fatigue',
+       'symptom:Vomiting', 'symptom:Diarrhea',
+       'symptom:Shortness of breath', 'symptom:Chest pain',
+       'symptom:Dizziness', 'symptom:Confusion',
+       'symptom:Generalized tonic–clonic seizure', 'symptom:Weakness']
+
 
 label = "death_jhu_incidence"
 
 full_seqs = []
 for r in regions:
-    with open(f"./data/covid_data/saves/backfill_vals_{r}.pkl", "rb") as fl:
+    with open(f"./data/covid_data/saves_daily/backfill_vals_{r}.pkl", "rb") as fl:
         data = pickle.load(fl)
-    full_seq = [[data[0][feat][i][0] for i in data[0][feat]] for feat in features]
+    # pu.db
+    full_seq = [[data[feat][i] for i in data[feat]] for feat in features]
     # full_seq = [full_seq[i][-1] for i in full_seq]
     full_seqs.append(full_seq)
 full_seqs = np.array(full_seqs).transpose(0, 2, 1)  # Shape: [regions, time, features]
@@ -67,14 +84,13 @@ parser.add_option("-n", "--num", dest="num", type="string")
 parser.add_option("-e", "--epoch", dest="epochs", type="int", default="1500")
 parser.add_option("-b", "--break", dest="break_ref_set", type="int", default=4)
 parser.add_option("-t", "--no-tb", action="store_true", dest="no_tb", default=False,)
-parser.add_option("-c", "--check-time", action="store_true", dest="check_time", default=False,)
 
 (options, args) = parser.parse_args()
 
 BREAK_REF_SET = options.break_ref_set
 print("Break ref sets into "+str(BREAK_REF_SET)+" part(s).")
 if not options.no_tb:
-    writer = SummaryWriter("runs/covid/covid_"+str(options.week_ahead)+"_break_"+str(BREAK_REF_SET))
+    writer = SummaryWriter("runs/covid_daily_pcc/covid_"+str(options.week_ahead)+"_break_"+str(BREAK_REF_SET))
 
 # train_seasons = list(range(2003, 2019))
 # test_seasons = [2019]
@@ -155,7 +171,6 @@ for w in range(4,5):
     train_meta, train_x, train_y, test_meta, test_x, test_y = create_dataset2(
         full_meta_all, full_x_all, last=week_ahead
     )
-
     def create_tensors(metas, seqs, ys):
         metas = float_tensor(metas)
         ys = float_tensor(ys)
@@ -225,6 +240,7 @@ for w in range(4,5):
         use_ref_labels=False,
         use_DAG=False,
         add_atten=False,
+        pcc=True
     ).cuda()
     optimizer = optim.Adam(
         list(emb_model.parameters())
@@ -234,7 +250,7 @@ for w in range(4,5):
     )
 
     # emb_model_full = emb_model
-
+    # pu.db
     train_meta_, train_x_, train_y_, train_lens_ = create_tensors(
         train_meta, train_x, train_y
     )
@@ -265,6 +281,7 @@ for w in range(4,5):
         full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:]])
         full_meta = np.concatenate([full_meta for _ in range(3)])
     elif BREAK_REF_SET == 4:
+        # pu.db
         full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:]])
         full_meta = np.concatenate([full_meta for _ in range(4)])
     elif BREAK_REF_SET == 6:
@@ -357,9 +374,9 @@ for w in range(4,5):
     train_errors = []
     variances = []
     best_ep = 0
-    tic = time.perf_counter()
 
     for ep in range(EPOCHS):
+        # pu.db
         emb_model.train()
         emb_model_full.train()
         fnp_model.train()
@@ -404,22 +421,19 @@ for w in range(4,5):
             save_model(f"model_chkp/model{model_num}")
             error = e
             best_ep = ep + 1
-    toc = time.perf_counter()
-    if options.check_time:
-        print(f"Time needed {toc - tic:0.4f} seconds")
-        sys.exit(0)
+
 
     print(f"Val MSE error: {error}")
     plt.figure(1)
     plt.plot(losses)
-    plt.savefig(f"plots_covid/losses{model_num}.png")
+    plt.savefig(f"plots_covid_daily_pcc/losses{model_num}.png")
     plt.figure(2)
     plt.plot(np.log(errors))
     plt.plot(np.log(train_errors))
-    plt.savefig(f"plots_covid/errors{model_num}.png")
+    plt.savefig(f"plots_covid_daily_pcc/errors{model_num}.png")
     plt.figure(3)
     plt.plot(variances)
-    plt.savefig(f"plots_covid/vars{model_num}.png")
+    plt.savefig(f"plots_covid_daily_pcc/vars{model_num}.png")
 
     # load_model(f"model_chkp/model{model_num}")
 
@@ -439,7 +453,7 @@ for w in range(4,5):
     plt.plot(yt, label="True Value", color="green")
     plt.legend()
     plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Test{model_num}.png")
+    plt.savefig(f"plots_covid_daily_pcc/Test{model_num}.png")
     dt = {
         "rmse": e,
         "target": yt,
@@ -448,7 +462,7 @@ for w in range(4,5):
         "fem": fem,
         "tem": tem,
     }
-    save_data(dt, f"./saves_covid/{model_num}_test.pkl")
+    save_data(dt, f"./saves_covid_daily_pcc/{model_num}_test.pkl")
 
     e, yp, yt, vars, _, _ = evaluate(True, dtype="val")
     yt *= full_seqs_norm[features.index(label)]
@@ -465,7 +479,7 @@ for w in range(4,5):
     plt.plot(yt, label="True Value", color="green")
     plt.legend()
     plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Val{model_num}.pdf")
+    plt.savefig(f"plots_covid_daily_pcc/Val{model_num}.pdf")
 
     e, yp, yt, vars, fem, tem = evaluate(True, dtype="all")
     yt *= full_seqs_norm[features.index(label)]
@@ -482,7 +496,7 @@ for w in range(4,5):
     plt.plot(yt, label="True Value", color="green")
     plt.legend()
     plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Train{model_num}.pdf")
+    plt.savefig(f"plots_covid_daily_pcc/Train{model_num}.pdf")
     dt = {
         "rmse": e,
         "target": yt,
@@ -491,7 +505,7 @@ for w in range(4,5):
         "fem": fem,
         "tem": tem,
     }
-    save_data(dt, f"./saves_covid/{model_num}_train.pkl")
+    save_data(dt, f"./saves_covid_daily_pcc/{model_num}_train.pkl")
 
 
 

@@ -13,7 +13,7 @@ from sklearn.preprocessing import StandardScaler
 from symp_extract.consts import include_cols
 import dgl
 from functools import reduce
-
+import pudb
 from models.utils import device, float_tensor, long_tensor
 from models.multimodels import (
     EmbedEncoder,
@@ -23,6 +23,7 @@ from models.multimodels import (
     CorrEncoder,
     Decoder,
 )
+from torch.utils.tensorboard import SummaryWriter
 
 
 parser = OptionParser()
@@ -30,8 +31,15 @@ parser.add_option("-w", "--week", dest="week_ahead", type="int", default=2)
 parser.add_option("-y", "--year", dest="year", type="int", default=2020)
 parser.add_option("-n", "--num", dest="num", type="string")
 parser.add_option("-e", "--epoch", dest="epochs", type="int", default="1500")
+parser.add_option("-b", "--break", dest="break_ref_set", type="int", default=4)
+parser.add_option("-t", "--no-tb", action="store_true", dest="no_tb", default=False,)
+
 (options, args) = parser.parse_args()
 
+BREAK_REF_SET = options.break_ref_set
+print("Break ref sets into "+str(BREAK_REF_SET)+" part(s).")
+if not options.no_tb:
+    writer = SummaryWriter("runs/power/power_"+str(options.week_ahead)+"_break_"+str(BREAK_REF_SET))
 with open("./data/household_power_consumption/household_power_consumption.txt", "r") as f:
     data = f.readlines()
 
@@ -88,7 +96,7 @@ def sample_train(n_samples, window = 20):
 
 def sample_test(n_samples, window = 20):
     X, X_symp, Y, mt, reg = [], [], [], [], []
-    start_seqs = np.random.randint(test_start, total_time, n_samples)
+    start_seqs = np.random.randint(test_start, total_time-window, n_samples)
     for start_seq in start_seqs:
         X.append(target[start_seq:start_seq+window, np.newaxis])
         X_symp.append(features[start_seq:start_seq+window])
@@ -106,15 +114,14 @@ def sample_test(n_samples, window = 20):
 
 
 # Reference points
-splits = 10
+splits = BREAK_REF_SET
 len_seq = test_start//splits
-seq_references = np.array([features[i: i+len_seq, 0, np.newaxis] for i in range(0, test_start, len_seq)])[:, :100, :]
-symp_references = np.array([features[i: i+len_seq] for i in range(0, test_start, len_seq)])[:, :100, :]
+seq_references   = np.array([features[i: i+len_seq, 0, np.newaxis] for i in range(0, test_start, len_seq)])[:, :100, :]
+symp_references  = np.array([features[i: i+len_seq] for i in range(0, test_start, len_seq)])[:, :100, :]
 month_references = np.arange(12)
-reg_references = np.arange(4)
+reg_references   = np.arange(4)
 
 train_seqs, train_symp_seqs, train_y, mt, reg = sample_train(100)
-
 
 
 
@@ -267,7 +274,7 @@ def train(train_seqs, train_symp_seqs, reg, mt, train_y):
     losses = month_loss + seq_loss + symp_loss + reg_loss + loss
     losses.backward()
     opt.step()
-    print(f"Loss = {loss.detach().cpu().numpy()}")
+    # print(f"Loss = {loss.detach().cpu().numpy()}")
 
     return (
         mean_y.detach().cpu().numpy(),
@@ -335,10 +342,14 @@ def evaluate(test_seqs, test_symp_seqs, reg_test, mt_test, test_y, sample=True):
     return rmse, mean_y, sample_y
 
 
-for ep in range(1, 1000 + 1):
+for ep in range(1, options.epochs + 1):
     train_seqs, train_symp_seqs, train_y, mt, reg = sample_train(100)
     train(train_seqs, train_symp_seqs, reg, mt, train_y)
     if ep % 10 == 0:
         print("Evaluating")
+        print(ep)
         test_seqs, test_symp_seqs, test_y, mt_test, reg_test = sample_test(100)
-        evaluate(test_seqs, test_symp_seqs, reg_test, mt_test, test_y)
+        rmse, _, _ = evaluate(test_seqs, test_symp_seqs, reg_test, mt_test, test_y)
+        if not options.no_tb:
+            writer.add_scalar('Val/RMSE', rmse, ep)
+        

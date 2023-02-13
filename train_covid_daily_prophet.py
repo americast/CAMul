@@ -10,46 +10,67 @@ from optparse import OptionParser
 from sklearn.preprocessing import StandardScaler
 import pudb
 from torch.utils.tensorboard import SummaryWriter
-torch.manual_seed(0)
 np.random.seed(10)
-import random
-random.seed(0)
-import time
-import sys
-regions = ["CA", "FL", "MA", "NY"]
+from prophet import Prophet
+# regions = ["CA", "FL", "MA", "NY"]
+regions = ["NY"]
 city_idx = {r: i for i, r in enumerate(regions)}
 
+# features = [
+#     "retail_and_recreation_percent_change_from_baseline",
+#     "grocery_and_pharmacy_percent_change_from_baseline",
+#     "parks_percent_change_from_baseline",
+#     "transit_stations_percent_change_from_baseline",
+#     "workplaces_percent_change_from_baseline",
+#     "residential_percent_change_from_baseline",
+#     "covidnet",
+#     "positiveIncrease",
+#     "negativeIncrease",
+#     "totalTestResultsIncrease",
+#     "onVentilatorCurrently",
+#     "inIcuCurrently",
+#     "recovered",
+#     "hospitalizedIncrease",
+#     "death_jhu_incidence",
+#     "dex_a",
+#     "apple_mobility",
+#     "Number of Facilities Reporting",
+#     "CLI Percent of Total Visits",
+# ]
+
 features = [
-    "retail_and_recreation_percent_change_from_baseline",
-    "grocery_and_pharmacy_percent_change_from_baseline",
-    "parks_percent_change_from_baseline",
-    "transit_stations_percent_change_from_baseline",
-    "workplaces_percent_change_from_baseline",
-    "residential_percent_change_from_baseline",
-    "covidnet",
-    "positiveIncrease",
-    "negativeIncrease",
-    "totalTestResultsIncrease",
-    "onVentilatorCurrently",
-    "inIcuCurrently",
-    "recovered",
-    "hospitalizedIncrease",
-    "death_jhu_incidence",
-    "dex_a",
-    "apple_mobility",
-    "Number of Facilities Reporting",
-    "CLI Percent of Total Visits",
-]
+       'retail_and_recreation_percent_change_from_baseline',
+       'grocery_and_pharmacy_percent_change_from_baseline',
+       'parks_percent_change_from_baseline',
+       'transit_stations_percent_change_from_baseline',
+       'workplaces_percent_change_from_baseline',
+       'residential_percent_change_from_baseline',
+       'Stage_One_Doses', 'Stage_Two_Doses', 'covidnet',
+       'Observed Number', 'Excess Estimate', 'death_jhu_cumulative',
+       'death_jhu_incidence', 'positiveIncr_cumulative', 'positiveIncr',
+       'cdc_negativeIncr', 'cdc_positiveIncr', 'cdc_total_resultsIncr',
+       'symptom:Fever', 'symptom:Low-grade fever', 'symptom:Cough',
+       'symptom:Sore throat', 'symptom:Headache', 'symptom:Fatigue',
+       'symptom:Vomiting', 'symptom:Diarrhea',
+       'symptom:Shortness of breath', 'symptom:Chest pain',
+       'symptom:Dizziness', 'symptom:Confusion',
+       'symptom:Generalized tonic–clonic seizure', 'symptom:Weakness']
+
 
 label = "death_jhu_incidence"
 
 full_seqs = []
 for r in regions:
-    with open(f"./data/covid_data/saves/backfill_vals_{r}.pkl", "rb") as fl:
+    with open(f"./data/covid_data/saves_daily/backfill_vals_{r}.pkl", "rb") as fl:
         data = pickle.load(fl)
-    full_seq = [[data[0][feat][i][0] for i in data[0][feat]] for feat in features]
+    # pu.db
+    full_seq = [[data[feat][i] for i in data[feat]] for feat in features]
     # full_seq = [full_seq[i][-1] for i in full_seq]
     full_seqs.append(full_seq)
+# pu.db
+dates = data[features[0]].keys()
+dates = [str(x) for x in dates]
+dates = [x[:4]+"-"+x[4:6]+"-"+x[6:] for x in dates]
 full_seqs = np.array(full_seqs).transpose(0, 2, 1)  # Shape: [regions, time, features]
 # Normalize
 # One scaler per region
@@ -67,14 +88,13 @@ parser.add_option("-n", "--num", dest="num", type="string")
 parser.add_option("-e", "--epoch", dest="epochs", type="int", default="1500")
 parser.add_option("-b", "--break", dest="break_ref_set", type="int", default=4)
 parser.add_option("-t", "--no-tb", action="store_true", dest="no_tb", default=False,)
-parser.add_option("-c", "--check-time", action="store_true", dest="check_time", default=False,)
 
 (options, args) = parser.parse_args()
 
 BREAK_REF_SET = options.break_ref_set
 print("Break ref sets into "+str(BREAK_REF_SET)+" part(s).")
 if not options.no_tb:
-    writer = SummaryWriter("runs/covid/covid_"+str(options.week_ahead)+"_break_"+str(BREAK_REF_SET))
+    writer = SummaryWriter("runs/covid_daily_prophet/covid_"+str(options.week_ahead))
 
 # train_seasons = list(range(2003, 2019))
 # test_seasons = [2019]
@@ -155,7 +175,6 @@ for w in range(4,5):
     train_meta, train_x, train_y, test_meta, test_x, test_y = create_dataset2(
         full_meta_all, full_x_all, last=week_ahead
     )
-
     def create_tensors(metas, seqs, ys):
         metas = float_tensor(metas)
         ys = float_tensor(ys)
@@ -234,7 +253,7 @@ for w in range(4,5):
     )
 
     # emb_model_full = emb_model
-
+    # pu.db
     train_meta_, train_x_, train_y_, train_lens_ = create_tensors(
         train_meta, train_x, train_y
     )
@@ -265,6 +284,7 @@ for w in range(4,5):
         full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:]])
         full_meta = np.concatenate([full_meta for _ in range(3)])
     elif BREAK_REF_SET == 4:
+        # pu.db
         full_x = np.concatenate([full_x[:,:ilk,:], full_x[:,ilk:2*ilk,:], full_x[:,2*ilk:3*ilk,:],full_x[:,3*ilk:4*ilk,:]])
         full_meta = np.concatenate([full_meta for _ in range(4)])
     elif BREAK_REF_SET == 6:
@@ -357,169 +377,149 @@ for w in range(4,5):
     train_errors = []
     variances = []
     best_ep = 0
-    tic = time.perf_counter()
 
-    for ep in range(EPOCHS):
-        emb_model.train()
-        emb_model_full.train()
-        fnp_model.train()
-        print(f"Epoch: {ep+1}")
-        optimizer.zero_grad()
-        # pu.db
-        x_embeds = emb_model.forward_mask(train_x.transpose(1, 0), train_meta, train_mask)
-        full_embeds = emb_model_full(full_x.transpose(1, 0), full_meta)
-        loss, yp, _ = fnp_model.forward(full_embeds, full_y, x_embeds, train_y)
-        loss.backward()
-        optimizer.step()
-        losses.append(loss.detach().cpu().numpy())
-        train_errors.append(
-            torch.pow(yp[full_x.shape[0] :] - train_y, 2)
-            .mean()
-            .sqrt()
-            .detach()
-            .cpu()
-            .numpy()
-        )
-
-        e, yp, yt, _, _, _, _ = evaluate(False)
-        e = np.mean([evaluate(True, dtype="val")[0] for _ in range(40)])
-        vars = np.mean([evaluate(True, dtype="val")[3] for _ in range(40)])
-        errors.append(e)
-        variances.append(vars)
-        idxs = np.random.randint(yp.shape[0], size=10)
-        print("Loss:", loss.detach().cpu().numpy())
-        print(f"Val RMSE: {e}, Train RMSE: {train_errors[-1]}")
+    for ep in range(1):
+        y_here = [x[0] for x in train_y.cpu().numpy()]
+        y_here_train = y_here[:len(y_here)-options.week_ahead]
+        y_here_test = y_here[len(y_here)-options.week_ahead:]
+        x_here = dates[:len(y_here_train)]
+        df = pd.DataFrame(columns =['DS', 'Y'])
+        df['ds'] = x_here
+        df['y'] = y_here_train
+        m = Prophet()
+        m.fit(df)
+        future = m.make_future_dataframe(periods=options.week_ahead)
+        forecast = m.predict(future)
+        test_predictions = list(forecast["yhat"])[-options.week_ahead:]
+        mse_error = np.sqrt(np.power(np.array(y_here_test) - np.array(test_predictions), 2).mean())
         if not options.no_tb:
-            writer.add_scalar('Train/RMSE', train_errors[-1], ep)
-            writer.add_scalar('Val/RMSE', e, ep)
+            writer.add_scalar('Val/RMSE', mse_error, ep)
+            print("MSE error: "+str(mse_error))
             # print(f"MSE: {e}")
 
-        if ep > 300 and min(errors[-100:]) > error + 0.02:
-            errors = errors[: best_ep + 1]
-            losses = losses[: best_ep + 1]
-            print(f"Done in {ep+1} epochs")
-            break
+    #     if ep > 300 and min(errors[-100:]) > error + 0.02:
+    #         errors = errors[: best_ep + 1]
+    #         losses = losses[: best_ep + 1]
+    #         print(f"Done in {ep+1} epochs")
+    #         break
 
-        if e < error:
-            save_model(f"model_chkp/model{model_num}")
-            error = e
-            best_ep = ep + 1
-    toc = time.perf_counter()
-    if options.check_time:
-        print(f"Time needed {toc - tic:0.4f} seconds")
-        sys.exit(0)
+    #     if e < error:
+    #         save_model(f"model_chkp/model{model_num}")
+    #         error = e
+    #         best_ep = ep + 1
 
-    print(f"Val MSE error: {error}")
-    plt.figure(1)
-    plt.plot(losses)
-    plt.savefig(f"plots_covid/losses{model_num}.png")
-    plt.figure(2)
-    plt.plot(np.log(errors))
-    plt.plot(np.log(train_errors))
-    plt.savefig(f"plots_covid/errors{model_num}.png")
-    plt.figure(3)
-    plt.plot(variances)
-    plt.savefig(f"plots_covid/vars{model_num}.png")
 
-    # load_model(f"model_chkp/model{model_num}")
+    # print(f"Val MSE error: {error}")
+    # plt.figure(1)
+    # plt.plot(losses)
+    # plt.savefig(f"plots_covid_daily/losses{model_num}.png")
+    # plt.figure(2)
+    # plt.plot(np.log(errors))
+    # plt.plot(np.log(train_errors))
+    # plt.savefig(f"plots_covid_daily/errors{model_num}.png")
+    # plt.figure(3)
+    # plt.plot(variances)
+    # plt.savefig(f"plots_covid_daily/vars{model_num}.png")
 
-    e, yp, yt, vars, fem, tem, A = evaluate(True)
-    # pu.db
-    yt *= full_seqs_norm[features.index(label)]
-    yp = (
-        np.array([evaluate(True)[1] for _ in range(1000)])
-        * full_seqs_norm[features.index(label)]
-    )
-    yp, vars = np.mean(yp, 0), np.var(yp, 0)
-    e = np.mean((yp - yt) ** 2)
-    dev = np.sqrt(vars) * 1.95
-    plt.figure(4)
-    plt.plot(yp, label="Predicted 95%", color="blue")
-    plt.fill_between(np.arange(len(yp)), yp + dev, yp - dev, color="blue", alpha=0.2)
-    plt.plot(yt, label="True Value", color="green")
-    plt.legend()
-    plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Test{model_num}.png")
-    dt = {
-        "rmse": e,
-        "target": yt,
-        "pred": yp,
-        "vars": vars,
-        "fem": fem,
-        "tem": tem,
-    }
-    save_data(dt, f"./saves_covid/{model_num}_test.pkl")
+    # # load_model(f"model_chkp/model{model_num}")
 
-    e, yp, yt, vars, _, _ = evaluate(True, dtype="val")
-    yt *= full_seqs_norm[features.index(label)]
-    yp = (
-        np.array([evaluate(True, dtype="val")[1] for _ in range(1000)])
-        * full_seqs_norm[features.index(label)]
-    )
-    yp, vars = np.mean(yp, 0), np.var(yp, 0)
-    e = np.mean((yp - yt) ** 2)
-    dev = np.sqrt(vars) * 1.95
-    plt.figure(5)
-    plt.plot(yp, label="Predicted 95%", color="blue")
-    plt.fill_between(np.arange(len(yp)), yp + dev, yp - dev, color="blue", alpha=0.2)
-    plt.plot(yt, label="True Value", color="green")
-    plt.legend()
-    plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Val{model_num}.pdf")
+    # e, yp, yt, vars, fem, tem, A = evaluate(True)
+    # # pu.db
+    # yt *= full_seqs_norm[features.index(label)]
+    # yp = (
+    #     np.array([evaluate(True)[1] for _ in range(1000)])
+    #     * full_seqs_norm[features.index(label)]
+    # )
+    # yp, vars = np.mean(yp, 0), np.var(yp, 0)
+    # e = np.mean((yp - yt) ** 2)
+    # dev = np.sqrt(vars) * 1.95
+    # plt.figure(4)
+    # plt.plot(yp, label="Predicted 95%", color="blue")
+    # plt.fill_between(np.arange(len(yp)), yp + dev, yp - dev, color="blue", alpha=0.2)
+    # plt.plot(yt, label="True Value", color="green")
+    # plt.legend()
+    # plt.title(f"RMSE: {e}")
+    # plt.savefig(f"plots_covid_daily/Test{model_num}.png")
+    # dt = {
+    #     "rmse": e,
+    #     "target": yt,
+    #     "pred": yp,
+    #     "vars": vars,
+    #     "fem": fem,
+    #     "tem": tem,
+    # }
+    # save_data(dt, f"./saves_covid_daily/{model_num}_test.pkl")
 
-    e, yp, yt, vars, fem, tem = evaluate(True, dtype="all")
-    yt *= full_seqs_norm[features.index(label)]
-    yp = (
-        np.array([evaluate(True, dtype="all")[1] for _ in range(40)])
-        * full_seqs_norm[features.index(label)]
-    )
-    yp, vars = np.mean(yp, 0), np.var(yp, 0)
-    e = np.mean((yp - yt) ** 2)
-    dev = np.sqrt(vars) * 1.95
-    plt.figure(6)
-    plt.plot(yp, label="Predicted 95%", color="blue")
-    plt.fill_between(np.arange(len(yp)), yp + dev, yp - dev, color="blue", alpha=0.2)
-    plt.plot(yt, label="True Value", color="green")
-    plt.legend()
-    plt.title(f"RMSE: {e}")
-    plt.savefig(f"plots_covid/Train{model_num}.pdf")
-    dt = {
-        "rmse": e,
-        "target": yt,
-        "pred": yp,
-        "vars": vars,
-        "fem": fem,
-        "tem": tem,
-    }
-    save_data(dt, f"./saves_covid/{model_num}_train.pkl")
+    # e, yp, yt, vars, _, _ = evaluate(True, dtype="val")
+    # yt *= full_seqs_norm[features.index(label)]
+    # yp = (
+    #     np.array([evaluate(True, dtype="val")[1] for _ in range(1000)])
+    #     * full_seqs_norm[features.index(label)]
+    # )
+    # yp, vars = np.mean(yp, 0), np.var(yp, 0)
+    # e = np.mean((yp - yt) ** 2)
+    # dev = np.sqrt(vars) * 1.95
+    # plt.figure(5)
+    # plt.plot(yp, label="Predicted 95%", color="blue")
+    # plt.fill_between(np.arange(len(yp)), yp + dev, yp - dev, color="blue", alpha=0.2)
+    # plt.plot(yt, label="True Value", color="green")
+    # plt.legend()
+    # plt.title(f"RMSE: {e}")
+    # plt.savefig(f"plots_covid_daily/Val{model_num}.pdf")
+
+    # e, yp, yt, vars, fem, tem = evaluate(True, dtype="all")
+    # yt *= full_seqs_norm[features.index(label)]
+    # yp = (
+    #     np.array([evaluate(True, dtype="all")[1] for _ in range(40)])
+    #     * full_seqs_norm[features.index(label)]
+    # )
+    # yp, vars = np.mean(yp, 0), np.var(yp, 0)
+    # e = np.mean((yp - yt) ** 2)
+    # dev = np.sqrt(vars) * 1.95
+    # plt.figure(6)
+    # plt.plot(yp, label="Predicted 95%", color="blue")
+    # plt.fill_between(np.arange(len(yp)), yp + dev, yp - dev, color="blue", alpha=0.2)
+    # plt.plot(yt, label="True Value", color="green")
+    # plt.legend()
+    # plt.title(f"RMSE: {e}")
+    # plt.savefig(f"plots_covid_daily/Train{model_num}.pdf")
+    # dt = {
+    #     "rmse": e,
+    #     "target": yt,
+    #     "pred": yp,
+    #     "vars": vars,
+    #     "fem": fem,
+    #     "tem": tem,
+    # }
+    # save_data(dt, f"./saves_covid_daily/{model_num}_train.pkl")
 
 
 
-    # Region wise plot
-    e, yp, yt, vars, fem, tem = evaluate(True)
-    yt *= full_seqs_norm[features.index(label)]
-    yp = (
-        np.array([evaluate(True)[1] for _ in range(1000)])
-        * full_seqs_norm[features.index(label)]
-    )
-    yp, vars = np.mean(yp, 0), np.var(yp, 0)
-    e = np.mean((yp - yt) ** 2)
-    dev = np.sqrt(vars) * 1.95
-    len_yp = len(yp)//len(regions)
-    for i, r in enumerate(regions):
-        plt.figure(4)
-        plt.clf()
-        plt.plot(yp[i*len_yp: (i+1)*len_yp], label="Predicted 95%", color="blue")
-        plt.fill_between(np.arange(len(yp[i*len_yp: (i+1)*len_yp])), yp[i*len_yp: (i+1)*len_yp] + dev[i*len_yp: (i+1)*len_yp], yp[i*len_yp: (i+1)*len_yp] - dev[i*len_yp: (i+1)*len_yp], color="blue", alpha=0.2)
-        plt.plot(yt[i*len_yp: (i+1)*len_yp], label="True Value", color="green")
-        plt.legend()
-        plt.title(f"RMSE: {np.mean((yp[i*len_yp: (i+1)*len_yp] - yt[i*len_yp: (i+1)*len_yp]) ** 2)}")
-        plt.savefig(f"plots_covid/Test{model_num}_{r}_{w}.png")
-    dt = {
-        "rmse": e,
-        "target": yt,
-        "pred": yp,
-        "vars": vars,
-        "fem": fem,
-        "tem": tem,
-    }
+    # # Region wise plot
+    # e, yp, yt, vars, fem, tem = evaluate(True)
+    # yt *= full_seqs_norm[features.index(label)]
+    # yp = (
+    #     np.array([evaluate(True)[1] for _ in range(1000)])
+    #     * full_seqs_norm[features.index(label)]
+    # )
+    # yp, vars = np.mean(yp, 0), np.var(yp, 0)
+    # e = np.mean((yp - yt) ** 2)
+    # dev = np.sqrt(vars) * 1.95
+    # len_yp = len(yp)//len(regions)
+    # for i, r in enumerate(regions):
+    #     plt.figure(4)
+    #     plt.clf()
+    #     plt.plot(yp[i*len_yp: (i+1)*len_yp], label="Predicted 95%", color="blue")
+    #     plt.fill_between(np.arange(len(yp[i*len_yp: (i+1)*len_yp])), yp[i*len_yp: (i+1)*len_yp] + dev[i*len_yp: (i+1)*len_yp], yp[i*len_yp: (i+1)*len_yp] - dev[i*len_yp: (i+1)*len_yp], color="blue", alpha=0.2)
+    #     plt.plot(yt[i*len_yp: (i+1)*len_yp], label="True Value", color="green")
+    #     plt.legend()
+    #     plt.title(f"RMSE: {np.mean((yp[i*len_yp: (i+1)*len_yp] - yt[i*len_yp: (i+1)*len_yp]) ** 2)}")
+    #     plt.savefig(f"plots_covid/Test{model_num}_{r}_{w}.png")
+    # dt = {
+    #     "rmse": e,
+    #     "target": yt,
+    #     "pred": yp,
+    #     "vars": vars,
+    #     "fem": fem,
+    #     "tem": tem,
+    # }

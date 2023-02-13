@@ -161,6 +161,12 @@ for w in range(4,5):
     train_meta, train_x, train_y, test_meta, test_x, test_y = create_dataset2(
         full_meta_all, full_x_all, last=week_ahead
     )
+    os.system("mkdir -p plots_test_x/")
+    for k, feat in enumerate(features):
+        to_plot = test_x[0][:, k]
+        plt.plot(to_plot)
+        plt.savefig("plots_test_x/"+feat+".png")
+        plt.clf()
 
     def create_tensors(metas, seqs, ys):
         metas = float_tensor(metas)
@@ -246,7 +252,6 @@ for w in range(4,5):
     )
 
     test_meta, test_x, test_y, test_lens = create_tensors(test_meta, test_x, test_y)
-
     full_x_chunks = np.zeros((full_x.shape[0] * 4, full_x.shape[1], full_x.shape[2]))
     full_meta_chunks = np.zeros((full_meta.shape[0] * 4, full_meta.shape[1]))
     for i, s in enumerate(full_x):
